@@ -41,6 +41,9 @@ def clean_text(text):
     tokens = [word for word in tokens if word not in stop_words]
     return ' '.join(tokens)
 
+# Dataset file path
+DATASET_PATH = os.path.join(UPLOAD_FOLDER, 'dataset.csv')
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -63,15 +66,36 @@ def upload_file():
         
         # Clean the text (preprocessing)
         preprocessed_text = clean_text(raw_text)
-        
-        # Optionally, save the processed text to a CSV for later model use
-        processed_df = pd.DataFrame([{'original_text': raw_text, 'processed_text': preprocessed_text}])
-        processed_file = os.path.join(app.config['UPLOAD_FOLDER'], 'processed_data.csv')
-        processed_df.to_csv(processed_file, mode='a', header=not os.path.exists(processed_file), index=False)
-        
-        return f"File uploaded and processed. Preprocessed text: {preprocessed_text[:500]}...<br><a href='/upload'>Upload another file</a>"
+
+        # Prepare data for dataset
+        data = {
+            'filename': filename,
+            'original_text': raw_text,
+            'processed_text': preprocessed_text
+        }
+
+        # Check if dataset file exists, create if not
+        if not os.path.exists(DATASET_PATH):
+            df = pd.DataFrame([data])
+            df.to_csv(DATASET_PATH, mode='w', header=True, index=False)
+        else:
+            df = pd.DataFrame([data])
+            df.to_csv(DATASET_PATH, mode='a', header=False, index=False)
+
+        # Return response with an upload form
+        return render_template('upload_again.html', preprocessed_text=preprocessed_text[:500])
     return "Invalid file or no file uploaded."
+
+@app.route('/upload_again', methods=['GET'])
+def upload_again():
+    return render_template('index.html')
+
+@app.route('/reset', methods=['POST'])
+def reset_data():
+    if os.path.exists(DATASET_PATH):
+        os.remove(DATASET_PATH)
+        return render_template('index.html', message="Dataset has been reset successfully.")
+    return render_template('index.html', message="No dataset file found to reset.")
 
 if __name__ == '__main__':
     app.run(debug=True)
-
