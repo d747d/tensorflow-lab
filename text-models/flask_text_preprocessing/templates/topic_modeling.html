@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Topic Modeling</title>
+</head>
+<body>
+    <h1>Topic Modeling Results</h1>
+    
+    <h2>Topics:</h2>
+    {% if topics %}
+        <ul>
+        {% for topic in topics %}
+            <li>{{ topic }}</li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>No topics found.</p>
+    {% endif %}
+
+    <h2>Topic Visualization:</h2>
+    {% if vis_html %}
+        <div>
+            {{ vis_html|safe }}
+        </div>
+    {% else %}
+        <p>No visualization available.</p>
+    {% endif %}
+    
+    <br>
+    <a href="/">Back to Home</a>
+</body>
+</html>
