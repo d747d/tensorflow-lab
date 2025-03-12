@@ -82,6 +82,9 @@ def upload_file():
             df = pd.DataFrame([data])
             df.to_csv(DATASET_PATH, mode='a', header=False, index=False)
 
+        # Delete the original file after processing
+        os.remove(filepath)
+        
         # Return response with an upload form
         return render_template('upload_again.html', preprocessed_text=preprocessed_text[:500])
     return "Invalid file or no file uploaded."
