@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TensorFlow Web App</title>
+</head>
+<body>
+    <h1>TensorFlow Model Prediction</h1>
+    <form method="POST">
+        <label for="input_text">Enter Input:</label><br>
+        <input type="text" id="input_text" name="input_text"><br><br>
+        <input type="submit" value="Predict">
+    </form>
+
+    {% if output %}
+    <h2>Prediction:</h2>
+    <p>{{ output }}</p>
+    {% endif %}
+</body>
+</html>

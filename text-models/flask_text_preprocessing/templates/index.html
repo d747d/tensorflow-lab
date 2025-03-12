@@ -3,14 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Text Preprocessing App</title>
+    <title>Bulk File Upload</title>
 </head>
 <body>
-    <h1>Upload Text Document for Preprocessing</h1>
+    <h1>Upload Multiple Files for Topic Modeling</h1>
     <form action="/upload" method="POST" enctype="multipart/form-data">
-        <label for="file">Select a text file:</label>
-        <input type="file" name="file" id="file" accept=".txt">
-        <button type="submit">Upload</button>
+        <label for="files">Choose files:</label>
+        <input type="file" name="files" id="files" multiple>
+        <br><br>
+        <input type="submit" value="Upload Files">
     </form>
 </body>
 </html>
