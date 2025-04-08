@@ -52,6 +52,115 @@ def preprocess_text(text):
     else:
         return ''
 
+# Function to create inference script file
+def create_inference_script(output_dir):
+    with open(f'{output_dir}/inference.py', 'w') as f:
+        f.write('''
+import tensorflow as tf
+import pickle
+import re
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+import numpy as np
+
+# Function to download NLTK resources
+def download_nltk_resources():
+    for resource in ['punkt', 'stopwords', 'wordnet']:
+        try:
+            nltk.data.find(f'tokenizers/{resource}')
+        except LookupError:
+            nltk.download(resource)
+
+# Download resources
+download_nltk_resources()
+
+# Load model and resources
+model = tf.keras.models.load_model('model_output/sentiment_model.h5')
+
+with open('model_output/tokenizer.pickle', 'rb') as handle:
+    tokenizer = pickle.load(handle)
+    
+with open('model_output/thresholds.pickle', 'rb') as handle:
+    thresholds = pickle.load(handle)
+
+def preprocess_text(text):
+    # Clean and preprocess text for sentiment analysis
+    if isinstance(text, str):
+        # Convert to lowercase
+        text = text.lower()
+        
+        # Remove special characters, numbers, and extra whitespace
+        text = re.sub(r'[^\\w\\s]', '', text)
+        text = re.sub(r'\\d+', '', text)
+        text = re.sub(r'\\s+', ' ', text).strip()
+        
+        # Tokenize
+        words = nltk.word_tokenize(text)
+        
+        # Remove stopwords
+        stop_words = set(stopwords.words('english'))
+        words = [word for word in words if word not in stop_words]
+        
+        # Lemmatize
+        lemmatizer = WordNetLemmatizer()
+        words = [lemmatizer.lemmatize(word) for word in words]
+        
+        return ' '.join(words)
+    else:
+        return ''
+
+def predict_sentiment(text, max_len=150):
+    # Predict sentiment for a given text.
+    # Args:
+    #     text: Text to analyze
+    # Returns:
+    #     Dictionary with sentiment prediction and details
+    
+    # Preprocess the text
+    preprocessed_text = preprocess_text(text)
+    
+    # Tokenize and pad
+    sequence = tokenizer.texts_to_sequences([preprocessed_text])
+    padded = pad_sequences(sequence, maxlen=max_len, padding='post', truncating='post')
+    
+    # Predict
+    prediction = model.predict(padded)[0]
+    pred_class = np.argmax(prediction)
+    
+    # Map to sentiment
+    sentiment_map = {0: 'Negative', 1: 'Neutral', 2: 'Positive'}
+    
+    result = {
+        'sentiment': sentiment_map[pred_class],
+        'confidence': float(prediction[pred_class]),
+        'probabilities': {
+            'Negative': float(prediction[0]),
+            'Neutral': float(prediction[1]),
+            'Positive': float(prediction[2])
+        }
+    }
+    
+    return result
+
+# Example usage
+if __name__ == "__main__":
+    # Test with sample texts
+    test_texts = [
+        "Economic growth has surpassed expectations this quarter.",
+        "Market shows signs of recession as indexes plummet.",
+        "Financial stability maintained despite challenges."
+    ]
+    
+    for text in test_texts:
+        result = predict_sentiment(text)
+        print(f"\\nText: {text}")
+        print(f"Sentiment: {result['sentiment']}")
+        print(f"Confidence: {result['confidence']:.4f}")
+        print(f"Probabilities: {result['probabilities']}")
+''')
+
 # Main function for sentiment analysis pipeline
 def sentiment_analysis_pipeline(csv_path, output_dir='model_output'):
     # Create output directory
@@ -80,39 +189,46 @@ def sentiment_analysis_pipeline(csv_path, output_dir='model_output'):
     # Combine preprocessed text
     df['content'] = df['headline_processed'] + ' ' + df['text_processed']
     
-    # Analyze positivity distribution
+    # Check for NaN values in the positivity column and handle them
+    print(f"Missing values in positivity column: {df['positivity'].isna().sum()}")
+    
+    # Filter out rows with NaN positivity values
+    df_filtered = df.dropna(subset=['positivity'])
+    print(f"Dataset shape after filtering: {df_filtered.shape}")
+    
+    # Analyze positivity distribution (after filtering)
     plt.figure(figsize=(10, 6))
-    sns.histplot(df['positivity'], bins=20)
+    sns.histplot(df_filtered['positivity'], bins=20)
     plt.title('Distribution of Positivity Scores')
     plt.xlabel('Positivity Score')
     plt.ylabel('Frequency')
     plt.savefig(f'{output_dir}/positivity_distribution.png')
     
     # 3. Define sentiment categories based on data distribution
-    q1 = df['positivity'].quantile(0.33)
-    q2 = df['positivity'].quantile(0.67)
+    q1 = df_filtered['positivity'].quantile(0.33)
+    q2 = df_filtered['positivity'].quantile(0.67)
     
-    df['sentiment'] = pd.cut(
-        df['positivity'], 
+    df_filtered['sentiment'] = pd.cut(
+        df_filtered['positivity'], 
         bins=[-float('inf'), q1, q2, float('inf')], 
         labels=[0, 1, 2]  # 0: negative, 1: neutral, 2: positive
     )
     
-    # Convert to numeric
-    df['sentiment'] = df['sentiment'].astype(int)
+    # Convert to numeric safely
+    df_filtered['sentiment'] = df_filtered['sentiment'].astype('int')
     
     print("Sentiment distribution:")
-    sentiment_counts = df['sentiment'].value_counts().sort_index()
+    sentiment_counts = df_filtered['sentiment'].value_counts().sort_index()
     print(sentiment_counts)
     
     # Save the thresholds
-    thresholds = {'q1': q1, 'q2': q2}
+    thresholds = {'q1': float(q1), 'q2': float(q2)}
     with open(f'{output_dir}/thresholds.pickle', 'wb') as handle:
         pickle.dump(thresholds, handle, protocol=pickle.HIGHEST_PROTOCOL)
     
     # 4. Split data
-    X = df['content'].values
-    y = df['sentiment'].values
+    X = df_filtered['content'].values
+    y = df_filtered['sentiment'].values
     
     X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
     X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42, stratify=y_temp)
@@ -139,7 +255,7 @@ def sentiment_analysis_pipeline(csv_path, output_dir='model_output'):
     X_test_pad = pad_sequences(X_test_seq, maxlen=max_len, padding='post', truncating='post')
     
     # 6. Calculate class weights for imbalanced data
-    class_counts = df['sentiment'].value_counts().sort_index()
+    class_counts = df_filtered['sentiment'].value_counts().sort_index()
     total = class_counts.sum()
     class_weights = {i: total / (len(class_counts) * count) for i, count in enumerate(class_counts)}
     print("Class weights:", class_weights)
@@ -267,10 +383,6 @@ def sentiment_analysis_pipeline(csv_path, output_dir='model_output'):
     def predict_sentiment(text, model=model, tokenizer=tokenizer, max_len=max_len):
         """
         Predict sentiment for a given text.
-        Args:
-            text: Text to analyze
-        Returns:
-            Dictionary with sentiment prediction and details
         """
         # Preprocess the text
         preprocessed_text = preprocess_text(text)
@@ -313,117 +425,7 @@ def sentiment_analysis_pipeline(csv_path, output_dir='model_output'):
         print(f"Confidence: {prediction['confidence']:.4f}")
     
     # 13. Create and save inference script
-    inference_script = """
-import tensorflow as tf
-import pickle
-import re
-import nltk
-from nltk.corpus import stopwords
-from nltk.stem import WordNetLemmatizer
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-import numpy as np
-
-# Function to download NLTK resources
-def download_nltk_resources():
-    for resource in ['punkt', 'stopwords', 'wordnet']:
-        try:
-            nltk.data.find(f'tokenizers/{resource}')
-        except LookupError:
-            nltk.download(resource)
-
-# Download resources
-download_nltk_resources()
-
-# Load model and resources
-model = tf.keras.models.load_model('model_output/sentiment_model.h5')
-
-with open('model_output/tokenizer.pickle', 'rb') as handle:
-    tokenizer = pickle.load(handle)
-    
-with open('model_output/thresholds.pickle', 'rb') as handle:
-    thresholds = pickle.load(handle)
-
-def preprocess_text(text):
-    """Clean and preprocess text for sentiment analysis"""
-    if isinstance(text, str):
-        # Convert to lowercase
-        text = text.lower()
-        
-        # Remove special characters, numbers, and extra whitespace
-        text = re.sub(r'[^\w\s]', '', text)
-        text = re.sub(r'\d+', '', text)
-        text = re.sub(r'\s+', ' ', text).strip()
-        
-        # Tokenize
-        words = nltk.word_tokenize(text)
-        
-        # Remove stopwords
-        stop_words = set(stopwords.words('english'))
-        words = [word for word in words if word not in stop_words]
-        
-        # Lemmatize
-        lemmatizer = WordNetLemmatizer()
-        words = [lemmatizer.lemmatize(word) for word in words]
-        
-        return ' '.join(words)
-    else:
-        return ''
-
-def predict_sentiment(text, max_len=150):
-    """
-    Predict sentiment for a given text.
-    Args:
-        text: Text to analyze
-    Returns:
-        Dictionary with sentiment prediction and details
-    """
-    # Preprocess the text
-    preprocessed_text = preprocess_text(text)
-    
-    # Tokenize and pad
-    sequence = tokenizer.texts_to_sequences([preprocessed_text])
-    padded = pad_sequences(sequence, maxlen=max_len, padding='post', truncating='post')
-    
-    # Predict
-    prediction = model.predict(padded)[0]
-    pred_class = np.argmax(prediction)
-    
-    # Map to sentiment
-    sentiment_map = {0: 'Negative', 1: 'Neutral', 2: 'Positive'}
-    
-    result = {
-        'sentiment': sentiment_map[pred_class],
-        'confidence': float(prediction[pred_class]),
-        'probabilities': {
-            'Negative': float(prediction[0]),
-            'Neutral': float(prediction[1]),
-            'Positive': float(prediction[2])
-        }
-    }
-    
-    return result
-
-# Example usage
-if __name__ == "__main__":
-    # Test with sample texts
-    test_texts = [
-        "Economic growth has surpassed expectations this quarter.",
-        "Market shows signs of recession as indexes plummet.",
-        "Financial stability maintained despite challenges."
-    ]
-    
-    for text in test_texts:
-        result = predict_sentiment(text)
-        print(f"\\nText: {text}")
-        print(f"Sentiment: {result['sentiment']}")
-        print(f"Confidence: {result['confidence']:.4f}")
-        print(f"Probabilities: {result['probabilities']}")
-    """
-    
-    # Save inference script
-    with open(f'{output_dir}/inference.py', 'w') as f:
-        f.write(inference_script)
-    
+    create_inference_script(output_dir)
     print(f"Inference script saved to {output_dir}/inference.py")
     
     return model, tokenizer, predict_sentiment
